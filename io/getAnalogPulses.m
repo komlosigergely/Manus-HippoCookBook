@@ -42,6 +42,7 @@ addParameter(p,'groupPulses',false,@islogical);
 addParameter(p,'basepath',pwd,@ischar);
 addParameter(p,'useGPU',true,@islogical);
 addParameter(p,'overwrite',false,@islogical);
+addParameter(p,'analoginFilename','analogin.dat',@ischar);
 
 parse(p, varargin{:});
 offset = p.Results.offset;
@@ -53,6 +54,7 @@ groupPulses = p.Results.groupPulses;
 basepath = p.Results.basepath;
 useGPU = p.Results.useGPU;
 overwrite = p.Results.overwrite;
+analoginFilename = p.Results.analoginFilename;
 
 prevPath = pwd;
 cd(basepath);
@@ -75,7 +77,7 @@ if exist([filetarget '.pulses.events.mat'],'file')
 end
 
 analogFile = []; IntanBuzEd = [];
-f=dir('analogin.dat');                                                     % check file
+f=dir(analoginFilename);                                                     % check file
 if isempty(f) || f.bytes == 0                                              % if analogin is empty or doesn't exist
     warning('analogin.dat file is empty or does not exist, was the recording made in Intan Buzsaki edition?');
     
@@ -103,7 +105,7 @@ if isempty(f) || f.bytes == 0                                              % if 
     IntanBuzEd = 1;
 else
     disp('Using analogin.dat...');
-    analogFile = 'analogin.dat';  
+    analogFile = analoginFilename;  
     try [amplifier_channels, notes, aux_input_channels, spike_triggers,...         
         board_dig_in_channels, supply_voltage_channels, frequency_parameters, board_adc_channels ] =...
         read_Intan_RHD2000_file_HCB;
@@ -125,7 +127,7 @@ else
     if isempty(analogChannelsList)
         analogChannelsList = 1:nChannels;
     end
-    fileTargetAnalogIn =  dir('analogin*.dat');
+    fileTargetAnalogIn =  dir(analoginFilename);
     mAnalogIn = memmapfile(fullfile(basepath,fileTargetAnalogIn.name),'Format','uint16','Writable', true);
     dataAnalogIn = reshape(mAnalogIn.Data,size(board_adc_channels,2),[]);
     IntanBuzEd = 0;

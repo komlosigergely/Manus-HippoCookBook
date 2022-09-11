@@ -72,6 +72,10 @@ salt_time = p.Results.salt_time;
 salt_win = p.Results.salt_win;
 salt_binSize = p.Results.salt_binSize;
 
+if 1
+   assignin('base', 'p', p)
+   return
+end
 % Deal with inputs
 prevPath = pwd;
 cd(basepath);
@@ -107,12 +111,20 @@ if isempty(spikes)
     spikes = loadSpikes('getWaveformsFromDat',false);
 end
 
-pulsesAnalog.timestamps = []; pulsesAnalog.analogChannelsListannel = [];
-if strcmpi(analogChannelsList,'all')
-    pulsesAnalog = getAnalogPulses;
+if 1 % create pulsesAnalog from Optotag /gk
+    pulsesAnalog = Otpotag2pulsesAnalog(basepath)
 else
-    pulsesAnalog = getAnalogPulses('analogChannelsList',analogChannelsList);
+    analoginFilename = [basename, '.analogin.dat']; %/gk
+    pulsesAnalog.timestamps = []; pulsesAnalog.analogChannelsListannel = []; %/gk
+    
+    if strcmpi(analogChannelsList,'all')
+        pulsesAnalog = getAnalogPulses;
+    else
+        pulsesAnalog = getAnalogPulses('analogChannelsList',analogChannelsList, 'analoginFilename', analoginFilename);
+    end
 end
+
+
 if isempty(pulsesAnalog)
     pulsesAnalog.timestamps = []; 
     pulsesAnalog.analogChannelsList = [];
@@ -134,7 +146,7 @@ pulses.timestamps = [pulsesAnalog.timestamps; pulsesDigital.timestamps];  % comb
 pulses.channel = [pulsesAnalog.analogChannelsList; pulsesDigital.digitalChannelsList + lastAnalogChannels];  % combine pulses
 pulses.analogChannelsListannel = [pulsesAnalog.analogChannelsList; nan(size(pulsesDigital.digitalChannelsList))];  % 
 pulses.digitalChannelsListannel = [nan(size(pulsesAnalog.analogChannelsList)); pulsesDigital.digitalChannelsList];  % 
-pulses.duration = round(pulses.timestamps(:,2) - pulses.timestamps(:,1),3);  % 
+pulses.duration = round(pulses.timestamps(:,2) - pulses.timestamps(:,1),duration_round_decimal);  % 
 pulses.isAnalog = [ones(size(pulsesAnalog.analogChannelsList)); zeros(size(pulsesDigital.digitalChannelsList))];
 pulses.isDigital = [zeros(size(pulsesAnalog.analogChannelsList)); ones(size(pulsesDigital.digitalChannelsList))];
 
@@ -143,89 +155,98 @@ optogeneticResponses = [];
 pulseDuration = unique(round(pulses.duration,duration_round_decimal)); % because code only codes for channel, we take minimum duration channel for responses
 channels = unique(pulses.channel); % code per channel, channel x duration should be implemented... 
 timestamps_recording = min(pulses.timestamps(:,2)):1/1250:max(pulses.timestamps(:,2));
+
 % pulses condition channels x durations
-[m,n] = ndgrid(pulseDuration,channels);
-conditions = [m(:),n(:)];
+if 1
+    conditions = unique(pulsesAnalog.eventGroupID)
+else
+    [m,n] = ndgrid(pulseDuration,channels);
+    conditions = [m(:),n(:)];
+end
 
 for ii = 1:size(conditions,1)
     conditions(ii,3) = length(find(pulses.duration==conditions(ii,1) & pulses.channel == conditions(ii,2)));
 end
+
 notEnoughtPulses = conditions(:,3)<minNumberOfPulses;
 conditions(notEnoughtPulses,:) = [];
 nConditions = size(conditions,1);
 
 %% Merge durations that are close enough to be the same pulse duration
-for i = 1:length(channels)
-    indexes{i} = find(conditions(:,2) == channels(i));
-    durations = conditions(find(conditions(:,2) == channels(i)),1);
-    index{i} = find(diff(abs(durations)) < minDuration);
-end
-
-for i = 1:length(index)
-    if ~isempty(index{i})
-        for j = 1:length(index{i})
-             indexToMerge{i}(j) = find(conditions(:,3) == max(conditions(index{i}(j),3), conditions(index{i}(j)+1,3)));
-        end
-    else
-        indexToMerge{i} = [];
+if 0 % no merge
+    for i = 1:length(channels)
+        indexes{i} = find(conditions(:,2) == channels(i));
+        durations = conditions(find(conditions(:,2) == channels(i)),1);
+        index{i} = find(diff(abs(durations)) < minDuration);
     end
-end
-
-% Modify pulses.durations values
-for i = 1:length(channels)
-    if ~isempty(index{i})
-        ind = indexes{i}(index{i});
-        indToMerge = indexes{i}(indexToMerge{i});
-        for j = 1:length(ind)
-            dur = find(pulses.duration == conditions(ind(j),1) & pulses.channel == conditions(ind(j),2));
-            pulses.duration(dur) = conditions(indToMerge(j),1);
+    
+    for i = 1:length(index)
+        if ~isempty(index{i})
+            for j = 1:length(index{i})
+                indexToMerge{i}(j) = find(conditions(:,3) == max(conditions(index{i}(j),3), conditions(index{i}(j)+1,3)));
+            end
+        else
+            indexToMerge{i} = [];
         end
     end
-end
-
-% Modify conditions
-for i = 1:length(channels)
-    if ~isempty(index{i})
-        ind = indexes{i}(index{i});
-        indToMerge = indexes{i}(indexToMerge{i});
-        for j = 1:length(ind)
-            conditions(indToMerge(j),3) = conditions(indToMerge(j),3) + conditions(ind(j),3);
+    
+    % Modify pulses.durations values
+    for i = 1:length(channels)
+        if ~isempty(index{i})
+            ind = indexes{i}(index{i});
+            indToMerge = indexes{i}(indexToMerge{i});
+            for j = 1:length(ind)
+                dur = find(pulses.duration == conditions(ind(j),1) & pulses.channel == conditions(ind(j),2));
+                pulses.duration(dur) = conditions(indToMerge(j),1);
+            end
+        end
+    end
+    
+    % Modify conditions
+    for i = 1:length(channels)
+        if ~isempty(index{i})
+            ind = indexes{i}(index{i});
+            indToMerge = indexes{i}(indexToMerge{i});
+            for j = 1:length(ind)
+                conditions(indToMerge(j),3) = conditions(indToMerge(j),3) + conditions(ind(j),3);
+            end
+        end
+    end
+    
+    % Delete the indices
+    indxs = [];
+    for i = 1:length(channels)
+        indxs = [indxs ;indexes{i}(index{i})];
+    end
+    conditions(indxs,:) = [];
+    nConditions = size(conditions,1);
+    
+    
+    if nConditions == 2
+        if abs(conditions(1,1) - conditions(2,1)) < minDuration
+            conditions(2,3) = conditions(2,3) + conditions(1,3);
+            minPulse = min(conditions(:,1));
+            maxPulse = max(conditions(:,1));
+            
+            pulses.duration(pulses.duration == minPulse) = maxPulse;
+            
+            pulseDuration = unique(round(pulses.duration,3)); % because code only codes for channel, we take minimum duration channel for responses
+            [m,n] = ndgrid(pulseDuration,channels);
+            conditions = [m(:),n(:)];
+            for ii = 1:size(conditions,1)
+                conditions(ii,3) = length(find(pulses.duration==conditions(ii,1)));
+            end
+            notEnoughtPulses = conditions(:,3)<minNumberOfPulses;
+            conditions(notEnoughtPulses,:) = [];
+            nConditions = size(conditions,1);
         end
     end
 end
-
-% Delete the indices
-indxs = [];
-for i = 1:length(channels)
-    indxs = [indxs ;indexes{i}(index{i})];
-end
-conditions(indxs,:) = [];
-nConditions = size(conditions,1);
-
-
-if nConditions == 2
-    if abs(conditions(1,1) - conditions(2,1)) < minDuration
-        conditions(2,3) = conditions(2,3) + conditions(1,3);
-        minPulse = min(conditions(:,1));
-        maxPulse = max(conditions(:,1));
-        
-        pulses.duration(pulses.duration == minPulse) = maxPulse;
-        
-        pulseDuration = unique(round(pulses.duration,3)); % because code only codes for channel, we take minimum duration channel for responses
-        [m,n] = ndgrid(pulseDuration,channels);
-        conditions = [m(:),n(:)];
-        for ii = 1:size(conditions,1)
-            conditions(ii,3) = length(find(pulses.duration==conditions(ii,1)));
-        end
-        notEnoughtPulses = conditions(:,3)<minNumberOfPulses;
-        conditions(notEnoughtPulses,:) = [];
-        nConditions = size(conditions,1);
-    end
-end
-        
 
 %%
-spikes = loadSpikes;
+if isempty(spikes)
+    spikes = loadSpikes;
+end
 % generate random events for boostraping
 disp('Generating boostrap template...');
 nPulses = int32(size(pulses.timestamps,1));
@@ -233,13 +254,17 @@ randomEvents = [];
 for kk = 1:numRep
     randomEvents{kk} = sort(randsample(timestamps_recording, nPulses))';
 end
+
+test_period = conditions(jj,1)
+test_period = 0.01; % in sec
+
 disp('Computing responses...');
 for ii = 1:length(spikes.UID)
     fprintf(' **Pulses from unit %3.i/ %3.i \n',ii, size(spikes.UID,2)); %\n
     if numRep > 0
         [stccg, t] = CCG([spikes.times{ii} randomEvents],[],'binSize',binSize,'duration',winSize,'norm','rate');
         for jj = 1:nConditions
-            t_duringPulse = t > 0 & t < conditions(jj,1); 
+            t_duringPulse = t > 0 & t < test_period; 
             randomRatesDuringPulse = nanmean(stccg(t_duringPulse,2:size(randomEvents,2)+1,1),1);
             optogeneticResponses.bootsTrapRate(ii,jj) = mean(randomRatesDuringPulse);
             optogeneticResponses.bootsTrapRateStd(ii,jj) = std(randomRatesDuringPulse);
@@ -262,8 +287,8 @@ for ii = 1:length(spikes.UID)
             [stccg, t] = CCG({spikes.times{ii}, pul(:,1)},[],'binSize',binSize,'duration',winSize,'norm','rate');
             optogeneticResponses.responsecurve(ii,jj,:) = stccg(:,2,1);
             optogeneticResponses.responsecurveSmooth(ii,jj,:) = smooth(stccg(:,2,1));
-            t_duringPulse = t > 0 & t < pulseDuration; 
-            t_beforePulse = t > -pulseDuration & t < 0; 
+            t_duringPulse = t > 0 & t < test_period; 
+            t_beforePulse = t > -test_period & t < 0; 
             optogeneticResponses.responsecurveZ(ii,jj,:) = (stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1));
             optogeneticResponses.responsecurveZSmooth(ii,jj,:) = smooth((stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1)));
             optogeneticResponses.rateDuringPulse(ii,jj,1) = mean(stccg(t_duringPulse,2,1));
@@ -319,7 +344,7 @@ for ii = 1:length(spikes.UID)
                 time  = c{2};
                 % running salt
                 baseidx = dsearchn(time', salt_baseline');
-                tidx = dsearchn(time', [0; pulseDuration*2]);      
+                tidx = dsearchn(time', [0; test_period*2]);      
 
                 st = length(baseidx(1):baseidx(2));
                 nmbn = round(salt_win/salt_binSize);
@@ -408,6 +433,7 @@ for ii = 1:length(spikes.UID)
         end
     end
     optogeneticResponses.timestamps = t;
+    
 end
 
 % find intervals
@@ -421,7 +447,9 @@ end
 stimulationEpochs(end,2) = pulses.timestamps(end,2);
 
 optogeneticResponses.channels = conditions(:,2);
-optogeneticResponses.pulseDuration = conditions(:,1);
+%optogeneticResponses.pulseDuration = conditions(:,1);
+optogeneticResponses.pulseDuration = test_period*ones(1,nConditions); % kg replacement NEED to revise
+optogeneticResponses.test_period = test_period;
 optogeneticResponses.pulses = pulses;
 optogeneticResponses.numRep = numRep;
 optogeneticResponses.binSize = binSize;
@@ -437,7 +465,7 @@ optogeneticResponses.salt_time = salt_time;
 optogeneticResponses.salt_win = salt_win;
 optogeneticResponses.salt_binSize = salt_binSize;
 
-% Some metrics reponses
+%% Some metrics reponses
 responseMetrics = [];
 t = optogeneticResponses.timestamps;
 for ii = 1:length(spikes.UID)
