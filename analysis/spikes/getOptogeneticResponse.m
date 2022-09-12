@@ -38,17 +38,19 @@ addParameter(p,'binSize',0.001,@isnumeric);
 addParameter(p,'winSize',1,@isnumeric);
 addParameter(p,'rasterPlot',true,@islogical);
 addParameter(p,'ratePlot',true,@islogical);
-addParameter(p,'winSizePlot',[-.1 .5],@islogical);
+addParameter(p,'winSizePlot',[-.1 .5],@isnumeric);
 addParameter(p,'saveMat',true,@islogical);
 addParameter(p,'force',false,@islogical);
 addParameter(p,'minNumberOfPulses',200,@isnumeric);
 addParameter(p,'minDuration',0.004,@isnumeric); % 4 ms
 addParameter(p,'saveEventsFile',true,@islogical);
 addParameter(p,'duration_round_decimal',3,@isscalar);
-addParameter(p,'salt_baseline',[-0.25 -0.001],@isscalar);
-addParameter(p,'salt_time',[-0.250 0.250],@isscalar);
-addParameter(p,'salt_win',[0.01],@isscalar);
+addParameter(p,'salt_baseline',[-0.25 -0.001],@isvector);
+addParameter(p,'salt_time',[-0.250 0.250],@isvector);
+addParameter(p,'salt_win',[0.01],@isvector);
 addParameter(p,'salt_binSize',[0.001],@isscalar);
+addParameter(p,'conditionMode','Manu',@ischar);
+
 
 parse(p, varargin{:});
 analogChannelsList = p.Results.analogChannelsList;
@@ -71,11 +73,13 @@ salt_baseline = p.Results.salt_baseline;
 salt_time = p.Results.salt_time;
 salt_win = p.Results.salt_win;
 salt_binSize = p.Results.salt_binSize;
+conditionMode = p.Results.conditionMode;
 
 if 1
    assignin('base', 'p', p)
    return
 end
+
 % Deal with inputs
 prevPath = pwd;
 cd(basepath);
@@ -86,6 +90,7 @@ if ~isempty(targetFile) && ~force
     load(targetFile.name);
     return
 end
+
 
 %% Digital and Analog Pulses
 if isnan(analogChannelsList)
@@ -111,19 +116,20 @@ if isempty(spikes)
     spikes = loadSpikes('getWaveformsFromDat',false);
 end
 
-if 1 % create pulsesAnalog from Optotag /gk
-    pulsesAnalog = Otpotag2pulsesAnalog(basepath)
-else
-    analoginFilename = [basename, '.analogin.dat']; %/gk
-    pulsesAnalog.timestamps = []; pulsesAnalog.analogChannelsListannel = []; %/gk
-    
-    if strcmpi(analogChannelsList,'all')
-        pulsesAnalog = getAnalogPulses;
-    else
-        pulsesAnalog = getAnalogPulses('analogChannelsList',analogChannelsList, 'analoginFilename', analoginFilename);
-    end
+% get pulse times
+switch conditionMode
+    case 'HippoFronThal'
+        pulsesAnalog = Otpotag2pulsesAnalog('maxFrequency',2)
+    case 'Manu'
+        analoginFilename = [basename, '.analogin.dat']; %/gk
+        pulsesAnalog.timestamps = []; pulsesAnalog.analogChannelsListannel = []; %/gk
+        
+        if strcmpi(analogChannelsList,'all')
+            pulsesAnalog = getAnalogPulses;
+        else
+            pulsesAnalog = getAnalogPulses('analogChannelsList',analogChannelsList, 'analoginFilename', analoginFilename);
+        end
 end
-
 
 if isempty(pulsesAnalog)
     pulsesAnalog.timestamps = []; 
@@ -157,11 +163,12 @@ channels = unique(pulses.channel); % code per channel, channel x duration should
 timestamps_recording = min(pulses.timestamps(:,2)):1/1250:max(pulses.timestamps(:,2));
 
 % pulses condition channels x durations
-if 1
-    conditions = unique(pulsesAnalog.eventGroupID)
-else
-    [m,n] = ndgrid(pulseDuration,channels);
-    conditions = [m(:),n(:)];
+switch conditionMode
+    case 'HippoFronThal'
+        conditions = unique(pulsesAnalog.eventGroupID)
+    case 'Manu'
+        [m,n] = ndgrid(pulseDuration,channels);
+        conditions = [m(:),n(:)];
 end
 
 for ii = 1:size(conditions,1)
@@ -247,6 +254,7 @@ end
 if isempty(spikes)
     spikes = loadSpikes;
 end
+
 % generate random events for boostraping
 disp('Generating boostrap template...');
 nPulses = int32(size(pulses.timestamps,1));
@@ -255,8 +263,8 @@ for kk = 1:numRep
     randomEvents{kk} = sort(randsample(timestamps_recording, nPulses))';
 end
 
-test_period = conditions(jj,1)
-test_period = 0.01; % in sec
+test_period = conditions(jj,1) %!!!
+test_period = 0.01; % in sec   !!!
 
 disp('Computing responses...');
 for ii = 1:length(spikes.UID)
@@ -344,7 +352,7 @@ for ii = 1:length(spikes.UID)
                 time  = c{2};
                 % running salt
                 baseidx = dsearchn(time', salt_baseline');
-                tidx = dsearchn(time', [0; test_period*2]);      
+                tidx = dsearchn(time', [0; test_period*2]);      % !!! [0 x] helyett testp(1) testp(2)
 
                 st = length(baseidx(1):baseidx(2));
                 nmbn = round(salt_win/salt_binSize);
@@ -352,7 +360,7 @@ for ii = 1:length(spikes.UID)
                 if any((v + nmbn - 1) > st)
                     error('reduce window size or baseline duration')
                 end
-
+                % kg winsize is not dynamic: independent of test_period
                 [optogeneticResponses.salt.p_value(ii,jj,1), optogeneticResponses.salt.I_statistics(ii,jj,1)] = salt(rasterHist3(:,baseidx(1):baseidx(2)),rasterHist3(:,tidx(1):tidx(2)),salt_binSize, salt_win);
             else
                 optogeneticResponses.raster.rasterCount{ii,jj} = NaN;
