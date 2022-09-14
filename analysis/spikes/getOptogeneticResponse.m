@@ -119,7 +119,9 @@ end
 % get pulse times
 switch conditionMode
     case 'HippoFronThal'
-        pulsesAnalog = Otpotag2pulsesAnalog('maxFrequency',2)
+        pulsesAnalog = Otpotag2pulsesAnalog('maxFrequency',2,...
+            'somaticTestPeriod',12,...
+            'axonalTestPeriod',40);
     case 'Manu'
         analoginFilename = [basename, '.analogin.dat']; %/gk
         pulsesAnalog.timestamps = []; pulsesAnalog.analogChannelsListannel = []; %/gk
@@ -155,6 +157,8 @@ pulses.digitalChannelsListannel = [nan(size(pulsesAnalog.analogChannelsList)); p
 pulses.duration = round(pulses.timestamps(:,2) - pulses.timestamps(:,1),duration_round_decimal);  % 
 pulses.isAnalog = [ones(size(pulsesAnalog.analogChannelsList)); zeros(size(pulsesDigital.digitalChannelsList))];
 pulses.isDigital = [zeros(size(pulsesAnalog.analogChannelsList)); ones(size(pulsesDigital.digitalChannelsList))];
+pulses.groupsMajor = zeros(size(pulsesAnalog.timestamps,1),1);
+pulses.groupsMinor = zeros(size(pulsesAnalog.timestamps,1),1);
 
 % get cell response
 optogeneticResponses = [];
@@ -165,19 +169,24 @@ timestamps_recording = min(pulses.timestamps(:,2)):1/1250:max(pulses.timestamps(
 % pulses condition channels x durations
 switch conditionMode
     case 'HippoFronThal'
-        conditions = unique(pulsesAnalog.eventGroupID)
+        eventGroupID = {'eventGroupID'}
+        [conditions, pulses] = getConditions(pulsesAnalog, pulses,...
+            'groupsMajor', 'eventGroupID',...
+            'groupsMinor', 'eventID')
+        
     case 'Manu'
         [m,n] = ndgrid(pulseDuration,channels);
         conditions = [m(:),n(:)];
-end
-
-for ii = 1:size(conditions,1)
-    conditions(ii,3) = length(find(pulses.duration==conditions(ii,1) & pulses.channel == conditions(ii,2)));
+        for ii = 1:size(conditions,1)
+            conditions(ii,3) = length(find(pulses.duration==conditions(ii,1) & pulses.channel == conditions(ii,2)));
+        end
 end
 
 notEnoughtPulses = conditions(:,3)<minNumberOfPulses;
 conditions(notEnoughtPulses,:) = [];
 nConditions = size(conditions,1);
+
+
 
 %% Merge durations that are close enough to be the same pulse duration
 if 0 % no merge
@@ -263,8 +272,6 @@ for kk = 1:numRep
     randomEvents{kk} = sort(randsample(timestamps_recording, nPulses))';
 end
 
-test_period = conditions(jj,1) %!!!
-test_period = 0.01; % in sec   !!!
 
 disp('Computing responses...');
 for ii = 1:length(spikes.UID)
@@ -272,7 +279,8 @@ for ii = 1:length(spikes.UID)
     if numRep > 0
         [stccg, t] = CCG([spikes.times{ii} randomEvents],[],'binSize',binSize,'duration',winSize,'norm','rate');
         for jj = 1:nConditions
-            t_duringPulse = t > 0 & t < test_period; 
+            test_period = [conditions(jj,4) conditions(jj,5)]; % 
+            t_duringPulse = test_period(1) > 0 & t < test_period(2);
             randomRatesDuringPulse = nanmean(stccg(t_duringPulse,2:size(randomEvents,2)+1,1),1);
             optogeneticResponses.bootsTrapRate(ii,jj) = mean(randomRatesDuringPulse);
             optogeneticResponses.bootsTrapRateStd(ii,jj) = std(randomRatesDuringPulse);
@@ -284,10 +292,22 @@ for ii = 1:length(spikes.UID)
         optogeneticResponses.bootsTrapRateStd(ii,1:nConditions) = NaN;
         optogeneticResponses.bootsTrapCI(ii,1:nConditions,:) = nan(nConditions,2);
     end
+    
     for jj = 1:nConditions
-        pul = pulses.timestamps(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1),:);
-        isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
-        channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+        
+%         pul = pulses.timestamps(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1),:);
+%         isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+%         channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+        
+        if conditions(jj,6) <0 % major conditions
+            fieldP = 'groupsMajor';
+        else
+            fieldP = 'groupsMinor';
+        end
+        pul = pulses.timestamps(pulses.(fieldP) == conditions(jj,6));
+        isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.(fieldP) == conditions(jj,6)))
+        channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.(fieldP) == conditions(jj,6)));
+        
         
         nPulses = length(pul);
         pulseDuration = conditions(jj,1);
@@ -622,4 +642,61 @@ end
 
 
 cd(prevPath);
+end
+
+function [conditions, pulses] = getConditions(pulsesAnalog, pulses, varargin)
+p = inputParser;
+addParameter(p,'groupsMajor',[]);
+addParameter(p,'groupsMinor',[]);
+parse(p, varargin{:});
+
+groupsMajor = p.Results.groupsMajor;
+groupsMinor = p.Results.groupsMinor;
+
+if isempty(groupsMajor) & error('define major conditions'); end
+pulses.testperiod = pulsesAnalog.testperiod; % copy to pulses
+
+% conditions argument[pulsewidth, channel, numel,test_period_start test_period_end, groupID(a,b)]
+if ~isempty(groupsMajor)
+    pulses.groupsMajor = -pulsesAnalog.(groupsMajor);
+    numMajor = length(unique(pulses.groupsMajor));
+    numcond = unique(pulses.groupsMajor);
+end
+
+if ~isempty(groupsMinor)
+    pulses.groupsMinor = pulsesAnalog.(groupsMinor);
+    numMinor = length(unique(pulses.groupsMinor));
+    numcond = [numcond; unique(pulses.groupsMinor)];
+end
+
+conditions = [];
+% create the major conditions
+for n = 1:length(numcond)
+    if n <= numMajor
+        idx = (pulses.groupsMajor == numcond(n));
+        conditions(n,7) = 1; % plot
+    else
+        idx = (pulses.groupsMinor == numcond(n));
+        conditions(n,7) = 0; % no plot
+    end
+    if sum(idx)
+    conditions(n,1) = max(pulses.duration(idx)); % maximal
+    conditions(n,2) = unique(pulses.analogChannelsListannel(idx));
+    conditions(n,3) = sum(idx);
+    
+    test_period = unique(cell2mat(pulses.testperiod(idx)));
+    conditions(n,4) = test_period(1); % test period start
+    conditions(n,5) = test_period(2); % test period end
+    conditions(n,6) = numcond(n);
+    end
+end 
+
+
+% create the minor conditions
+
+end
+
+
+
+
 end

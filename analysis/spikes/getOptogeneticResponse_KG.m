@@ -1,5 +1,5 @@
 
-function [optogeneticResponses] = getOptogeneticResponse(varargin)
+function [optogeneticResponses] = getOptogeneticResponse_KG(varargin)
 % [optogeneticResponse] = getOptogeneticResponse(varargin)
 %
 % Computes Psth and a several statistical measures of the cell responses.
@@ -280,7 +280,7 @@ for ii = 1:length(spikes.UID)
         [stccg, t] = CCG([spikes.times{ii} randomEvents],[],'binSize',binSize,'duration',winSize,'norm','rate');
         for jj = 1:nConditions
             test_period = [conditions(jj,4) conditions(jj,5)]; % 
-            t_duringPulse = test_period(1) > 0 & t < test_period(2);
+            t_duringPulse = t > test_period(1) & t < test_period(2); % igazabol t_test-nek kellene lennie a valtozo nevenek
             randomRatesDuringPulse = nanmean(stccg(t_duringPulse,2:size(randomEvents,2)+1,1),1);
             optogeneticResponses.bootsTrapRate(ii,jj) = mean(randomRatesDuringPulse);
             optogeneticResponses.bootsTrapRateStd(ii,jj) = std(randomRatesDuringPulse);
@@ -295,38 +295,44 @@ for ii = 1:length(spikes.UID)
     
     for jj = 1:nConditions
         
-        pul = pulses.timestamps(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1),:);
-        isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
-        channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+%         pul = pulses.timestamps(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1),:);
+%         isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+%         channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
         
         if conditions(jj,6) <0 % major conditions
             fieldP = 'groupsMajor';
         else
             fieldP = 'groupsMinor';
         end
-        pul = pulses.timestamps(pulses.(fieldP) == conditions(jj,6));
-        isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.(fieldP) == conditions(jj,6)))
-        channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.duration == conditions(jj,1)));
+        pul = pulses.timestamps(pulses.(fieldP) == conditions(jj,6)); % pulse timestamps
+        isAnalog = median(pulses.isAnalog(pulses.channel == conditions(jj,2) & pulses.(fieldP) == conditions(jj,6)));
+        channelPulse = median(pulses.channel(pulses.channel == conditions(jj,2) & pulses.(fieldP) == conditions(jj,6)));
+        
+        
         nPulses = length(pul);
         pulseDuration = conditions(jj,1);
         if nPulses > 100
-            [stccg, t] = CCG({spikes.times{ii}, pul(:,1)},[],'binSize',binSize,'duration',winSize,'norm','rate');
+            [stccg, t] = CCG({spikes.times{ii}, pul(:,1)},[],'binSize',binSize,'duration',winSize,'norm','rate'); % t is -(winSize/2):binSize:(winSize/2)
             optogeneticResponses.responsecurve(ii,jj,:) = stccg(:,2,1);
             optogeneticResponses.responsecurveSmooth(ii,jj,:) = smooth(stccg(:,2,1));
-            t_duringPulse = t > 0 & t < test_period; 
-            t_beforePulse = t > -test_period & t < 0; 
-            optogeneticResponses.responsecurveZ(ii,jj,:) = (stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1));
-            optogeneticResponses.responsecurveZSmooth(ii,jj,:) = smooth((stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1)));
-            optogeneticResponses.rateDuringPulse(ii,jj,1) = mean(stccg(t_duringPulse,2,1));
-            optogeneticResponses.rateBeforePulse(ii,jj,1) = mean(stccg(t_beforePulse,2,1));
-            optogeneticResponses.rateZDuringPulse(ii,jj,1) = mean(squeeze(optogeneticResponses.responsecurveZ(ii,jj,t_duringPulse)));
-            optogeneticResponses.durationPerPulse(ii,jj,1) = t(find(t_duringPulse,1,'last')+1) - t(find(t_duringPulse,1,'first')-1);
-            optogeneticResponses.isAnalog(ii,jj,1) = isAnalog;
-            optogeneticResponses.isDigital(ii,jj,1) = ~isAnalog;
-            optogeneticResponses.channelPulse(ii,jj,1) = channelPulse;
             
-            [h, optogeneticResponses.modulationSignificanceLevel(ii,jj,1)] = kstest2(stccg(t_duringPulse,2,1),stccg(t_beforePulse,2,1));
-            ci = squeeze(optogeneticResponses.bootsTrapCI(ii,jj,:));
+            test_period = [conditions(jj,4) conditions(jj,5)]; % 
+            t_duringPulse = t > test_period(1) & t < test_period(2); % [a,b]
+            t_beforePulse = t > -test_period(2) & t < -test_period(1); % [-b -a]
+            
+            optogeneticResponses.responsecurveZ(ii,jj,:) = (stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1)); % for Z-score test, multiple test and for 'Some metrics reponses'
+            optogeneticResponses.responsecurveZSmooth(ii,jj,:) = smooth((stccg(:,2,1) - mean(stccg(t < 0,2,1)))/std(stccg(t < 0,2,1))); % for 'Some metrics reponses'
+            optogeneticResponses.rateDuringPulse(ii,jj,1) = mean(stccg(t_duringPulse,2,1)); % for Boostrap and multiple test
+            optogeneticResponses.rateBeforePulse(ii,jj,1) = mean(stccg(t_beforePulse,2,1)); % not used
+            optogeneticResponses.rateZDuringPulse(ii,jj,1) = mean(squeeze(optogeneticResponses.responsecurveZ(ii,jj,t_duringPulse))); % not used. ?? kivagott resz, hogyan befolyasolja
+            optogeneticResponses.durationPerPulse(ii,jj,1) = t(find(t_duringPulse,1,'last')+1) - t(find(t_duringPulse,1,'first')-1); % for raster plots
+            optogeneticResponses.isAnalog(ii,jj,1) = isAnalog;  % not used
+            optogeneticResponses.isDigital(ii,jj,1) = ~isAnalog;    % not used
+            optogeneticResponses.channelPulse(ii,jj,1) = channelPulse;  % not used
+            
+            % 2 Sample Kolmogorov-Smirnov Test
+            [h, optogeneticResponses.modulationSignificanceLevel(ii,jj,1)] = kstest2(stccg(t_duringPulse,2,1),stccg(t_beforePulse,2,1)); % for multiple test
+            ci = squeeze(optogeneticResponses.bootsTrapCI(ii,jj,:)); % confidence interval
             
             % Boostrap test
             if optogeneticResponses.rateDuringPulse(ii,jj,1) > ci(2)
@@ -352,8 +358,8 @@ for ii = 1:length(spikes.UID)
             rasterX = [];
             rasterY = [];
             for zz = 1:size(pul,1)
-                temp_spk = spikes.times{ii}(find(spikes.times{ii} - pul(zz,1)  > salt_time(1) & spikes.times{ii} - pul(zz,1)  < salt_time(2))) - pul(zz,1);
-                rasterX = [rasterX; temp_spk];
+                temp_spk = spikes.times{ii}(find(spikes.times{ii} - pul(zz,1)  > salt_time(1) & spikes.times{ii} - pul(zz,1)  < salt_time(2))) - pul(zz,1); % relative spike times that are within range of a pulse
+                rasterX = [rasterX; temp_spk]; % relative spike times
                 if ~isempty(temp_spk)
                     rasterY = [rasterY; zz * ones(size((temp_spk)))];
                 end
@@ -368,17 +374,31 @@ for ii = 1:length(spikes.UID)
                 optogeneticResponses.raster.rasterSpikesTimes{ii,jj} = rasterX;
 
                 time  = c{2};
+                
                 % running salt
                 baseidx = dsearchn(time', salt_baseline');
-                tidx = dsearchn(time', [0; test_period*2]);      % !!! [0 x] helyett testp(1) testp(2)
-
+                % tidx = dsearchn(time', [0; test_period*2]);      % !!! [0 x] helyett testp(1) testp(2)
+                tidx = dsearchn(time', [test_period(1); test_period(2)*2]);
+                
+                % make winsize dynamic
+     !!!           salt_win = test_period(2)- test_period(1) hogyan fog az ablak +2 tol szamitodni?
                 st = length(baseidx(1):baseidx(2));
                 nmbn = round(salt_win/salt_binSize);
+                % correct st if needed
+                rem = mod(st,nmbn);
+                if rem
+                    st = st+nmbn-rem;
+                    baseidx(2) = baseidx(1)+st-1
+                    maxIPI = 1/max(pulses.freq(pulses.(fieldP) == conditions(jj,6)))*1000;
+                    disp(['Increased baseline for Salt for condition ' num2str(conditions(jj,6)), '  from ' num2str(length(baseidx(1):baseidx(2))),...
+                        ' to ', num2str(st), ' ms. Max interpulse interval in this condition is ', num2str(maxIPI), ' ms.'])
+                end
+                
                 v = 1:nmbn:st;
                 if any((v + nmbn - 1) > st)
                     error('reduce window size or baseline duration')
                 end
-                % kg winsize is not dynamic: independent of test_period
+                % kg winsize was not dynamic: independent of test_period
                 [optogeneticResponses.salt.p_value(ii,jj,1), optogeneticResponses.salt.I_statistics(ii,jj,1)] = salt(rasterHist3(:,baseidx(1):baseidx(2)),rasterHist3(:,tidx(1):tidx(2)),salt_binSize, salt_win);
             else
                 optogeneticResponses.raster.rasterCount{ii,jj} = NaN;
@@ -404,6 +424,7 @@ for ii = 1:length(spikes.UID)
             optogeneticResponses.threeWaysTest(ii,jj,1) = test;
             optogeneticResponses.threeWaysTest_and_salt(ii,jj,1) = test && optogeneticResponses.salt.p_value(ii,jj,1)<0.05;
             
+            % ez mi?
             multipleTest = double([optogeneticResponses.rateDuringPulse(ii,jj,1) > ci(2) || isnan(ci(2)) optogeneticResponses.modulationSignificanceLevel(ii,jj,1)<0.01...
                 mean(optogeneticResponses.responsecurveZ(ii,jj,t_duringPulse)) > 1.96 optogeneticResponses.salt.p_value(ii,jj,1)<0.05]);
             multipleTest_sign = -double([optogeneticResponses.rateDuringPulse(ii,jj,1) < ci(2) || isnan(ci(2)) optogeneticResponses.modulationSignificanceLevel(ii,jj,1)<0.01...
@@ -459,7 +480,6 @@ for ii = 1:length(spikes.UID)
         end
     end
     optogeneticResponses.timestamps = t;
-    
 end
 
 % find intervals
@@ -473,8 +493,8 @@ end
 stimulationEpochs(end,2) = pulses.timestamps(end,2);
 
 optogeneticResponses.channels = conditions(:,2);
-%optogeneticResponses.pulseDuration = conditions(:,1);
-optogeneticResponses.pulseDuration = test_period*ones(1,nConditions); % kg replacement NEED to revise
+optogeneticResponses.pulseDuration = conditions(:,1);
+%optogeneticResponses.pulseDuration = test_period*ones(1,nConditions); % kg replacement NEED to revise
 optogeneticResponses.test_period = test_period;
 optogeneticResponses.pulses = pulses;
 optogeneticResponses.numRep = numRep;
@@ -496,7 +516,11 @@ responseMetrics = [];
 t = optogeneticResponses.timestamps;
 for ii = 1:length(spikes.UID)
     for jj = 1:nConditions
-        t_duringPulse = t > 0 & t < optogeneticResponses.pulseDuration(jj); 
+        
+      %  t_duringPulse = t > 0 & t < optogeneticResponses.pulseDuration(jj); 
+      test_period = [conditions(jj,4) conditions(jj,5)]; %
+      t_duringPulse = t > test_period(1) & t < test_period(2); % [a,b]
+        
         responseMetrics.maxResponse(ii,jj) = max(squeeze(optogeneticResponses.responsecurve(ii,jj,t_duringPulse)));
         responseMetrics.minResponse(ii,jj) = min(squeeze(optogeneticResponses.responsecurve(ii,jj,t_duringPulse)));
         responseMetrics.maxResponseZ(ii,jj) = max(squeeze(optogeneticResponses.responsecurveZ(ii,jj,t_duringPulse)));
@@ -653,6 +677,7 @@ groupsMinor = p.Results.groupsMinor;
 
 if isempty(groupsMajor) & error('define major conditions'); end
 pulses.testperiod = pulsesAnalog.testperiod; % copy to pulses
+pulses.freq = pulsesAnalog.freq;
 
 % conditions argument[pulsewidth, channel, numel,test_period_start test_period_end, groupID(a,b)]
 if ~isempty(groupsMajor)
@@ -678,23 +703,19 @@ for n = 1:length(numcond)
         conditions(n,7) = 0; % no plot
     end
     if sum(idx)
-    conditions(n,1) = max(pulses.duration(idx)); % maximal
-    conditions(n,2) = unique(pulses.analogChannelsListannel(idx));
-    conditions(n,3) = sum(idx);
-    
-    test_period = unique(cell2mat(pulses.testperiod(idx)));
-    conditions(n,4) = test_period(1); % test period start
-    conditions(n,5) = test_period(2); % test period end
-    conditions(n,6) = numcond(n);
+        conditions(n,1) = max(pulses.duration(idx)); % maximal
+        conditions(n,2) = unique(pulses.analogChannelsListannel(idx));
+        conditions(n,3) = sum(idx);
+        
+        test_period = unique(cell2mat(pulses.testperiod(idx)));
+        conditions(n,4) = test_period(1); % test period start
+        conditions(n,5) = test_period(2); % test period end
+        conditions(n,6) = numcond(n);
     end
-end 
-
-
-% create the minor conditions
-
+end
 end
 
 
 
 
-end
+
