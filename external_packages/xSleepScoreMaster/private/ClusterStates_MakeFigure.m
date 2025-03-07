@@ -8,9 +8,11 @@ v2struct(SleepState.detectorinfo.detectionparms.SleepScoreMetrics.histsandthresh
 
 %
 states = {SleepState.ints.WAKEstate,SleepState.ints.NREMstate,SleepState.ints.REMstate};
+states = {SleepState.ints.WAKEstate,SleepState.ints.QWAKEstate,SleepState.ints.NREMstate,SleepState.ints.Undeterminedstate,SleepState.ints.REMstate};
+
 %%
 %Figure locations
-figloc = [fullfile(basePath,'StateScoreFigures'),'/'];
+figloc = [fullfile(basePath,'StateScoreFigures'),filesep];
 if ~exist(figloc,'dir')
     mkdir(figloc)
 end
@@ -57,8 +59,10 @@ clusterfig = figure('visible','off');
         %plot(t_clus,-IDX,'LineWidth',2)
         hold on
         plot(states{1}',-1*ones(size(states{1}))','k','LineWidth',8)
-        plot(states{2}',-2*ones(size(states{2}))','b','LineWidth',8)
-        plot(states{3}',-3*ones(size(states{3}))','r','LineWidth',8)
+        plot(states{2}',-1*ones(size(states{2}))','g','LineWidth',8)
+        plot(states{3}',-2*ones(size(states{3}))','b','LineWidth',8)
+        plot(states{4}',-2*ones(size(states{4}))','y','LineWidth',8)
+        plot(states{5}',-3*ones(size(states{5}))','r','LineWidth',8)
         xlim(viewwin)
         ylim([-4 0])
         set(gca,'YTick',[-3:-1])
